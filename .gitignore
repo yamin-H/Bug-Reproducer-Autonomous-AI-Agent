@@ -1,0 +1,20 @@
+# Python
+agent/venv/
+agent/__pycache__/
+agent/.env
+agent/**/__pycache__/
+agent/**/*.pyc
+
+# Node
+api/node_modules/
+api/dist/
+api/.env
+
+# Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# General
+.DS_Store
+*.log
