@@ -3,17 +3,23 @@ from core.config import get_settings
 from core.schemas import RunJobRequest
 from graph.agent import agent
 import requests
+import os
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+# Allow the deployed Vercel frontend + localhost for development
+_frontend_origins = os.environ.get("FRONTEND_URL", "http://localhost:3000").split(",")
+if "http://localhost:3000" not in _frontend_origins:
+    _frontend_origins.append("http://localhost:3000")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_frontend_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 settings = get_settings()
-NODE_API_URL = "http://localhost:3001"
+NODE_API_URL = os.environ.get("NODE_API_URL", "http://localhost:3001")
 
 def run_agent(request: RunJobRequest):
     initial_state = {
