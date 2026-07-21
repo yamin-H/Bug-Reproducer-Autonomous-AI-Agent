@@ -4,7 +4,14 @@ import time
 from core.config import get_settings
 
 settings = get_settings()
-redis_client = redis.from_url(settings.redis_url)
+
+# ssl_cert_reqs=None is required for Upstash Redis (rediss://) with Python's
+# redis library — without it the SSL handshake fails with "Connection closed by server"
+redis_client = redis.from_url(
+    settings.redis_url,
+    ssl_cert_reqs=None,
+    decode_responses=False
+)
 
 def publish_log(job_id: str, step: str, status: str, detail: str = ""):
     """
