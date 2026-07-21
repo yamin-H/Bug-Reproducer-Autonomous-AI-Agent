@@ -34,7 +34,8 @@ export default function JobPage() {
 
     useEffect(() => {
         const fetchJob = async () => {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs/${jobId}`);
+            const baseUrl = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+            const res = await fetch(`${baseUrl}/api/jobs/${jobId}`);
             const data = await res.json();
             setJob(data);
         };
@@ -42,8 +43,9 @@ export default function JobPage() {
     }, [jobId]);
 
     useEffect(() => {
+        const baseUrl = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
         const eventSource = new EventSource(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/jobs/${jobId}/stream`
+            `${baseUrl}/api/jobs/${jobId}/stream`
         );
 
         setConnected(true);
@@ -64,7 +66,7 @@ export default function JobPage() {
 
             if (log.step === "Job complete") {
                 setTimeout(async () => {
-                    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs/${jobId}`);
+                    const res = await fetch(`${baseUrl}/api/jobs/${jobId}`);
                     const data = await res.json();
                     setJob(data);
                 }, 1000);

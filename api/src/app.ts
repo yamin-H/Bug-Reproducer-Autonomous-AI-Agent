@@ -12,11 +12,17 @@ const allowedOrigins = process.env.FRONTEND_URL
     ? [process.env.FRONTEND_URL, "http://localhost:3000"]
     : ["http://localhost:3000"];
 
+// Normalize origins by removing trailing slashes
+const normalizedAllowed = allowedOrigins.map(url => url.replace(/\/$/, ""));
+
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (e.g. curl, Render health checks)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) return callback(null, true);
+        
+        const normalizedOrigin = origin.replace(/\/$/, "");
+        if (normalizedAllowed.includes(normalizedOrigin)) return callback(null, true);
+        
         callback(new Error(`CORS: origin '${origin}' not allowed`));
     },
     credentials: true

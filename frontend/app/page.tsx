@@ -23,7 +23,9 @@ export default function Home() {
         setError("");
 
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/jobs`, {
+            // Remove trailing slash if it exists in the env var
+            const baseUrl = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+            const response = await fetch(`${baseUrl}/api/jobs`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ issueUrl, githubToken })
