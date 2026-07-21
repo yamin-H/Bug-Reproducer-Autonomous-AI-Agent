@@ -1,16 +1,20 @@
 import redis
 import json
 import time
+import ssl
 from core.config import get_settings
 
 settings = get_settings()
 
-# ssl_cert_reqs=None is required for Upstash Redis (rediss://) with Python's
-# redis library — without it the SSL handshake fails with "Connection closed by server"
+# Use ssl_context to disable cert verification for Upstash (rediss://)
+# ssl_cert_reqs was removed in redis-py >= 4.x; ssl_context is the correct API
+_ssl_ctx = ssl.create_default_context()
+_ssl_ctx.check_hostname = False
+_ssl_ctx.verify_mode = ssl.CERT_NONE
+
 redis_client = redis.from_url(
     settings.redis_url,
-    ssl_cert_reqs=None,
-    decode_responses=False
+    ssl_context=_ssl_ctx
 )
 
 def publish_log(job_id: str, step: str, status: str, detail: str = ""):
