@@ -1,20 +1,26 @@
+# Environment files (secrets — never commit)
+.env
+.env.local
+.env.*.local
+
+# Allow template files
+!.env.example
+
 # Python
-agent/venv/
-agent/__pycache__/
-agent/.env
-agent/**/__pycache__/
-agent/**/*.pyc
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
 
 # Node
-api/node_modules/
-api/dist/
-api/.env
+**/node_modules/
+**/.next/
+**/dist/
 
-# Next.js
-frontend/node_modules/
-frontend/.next/
-frontend/.env.local
-
-# General
+# OS
 .DS_Store
+Thumbs.db
+
+# Logs
 *.log

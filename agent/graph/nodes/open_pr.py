@@ -1,128 +1,117 @@
-import time
+"""LangGraph node: create a branch, push fix + test, and open a Pull Request."""
+
 import base64
+import logging
+import uuid
+
 import requests
 from graph.state import AgentState
 from core.utils import parse_github_url
+from core.sandbox import make_github_api_headers
 from services.publisher import publish_log
+
+logger = logging.getLogger(__name__)
+
 
 def open_pr(state: AgentState) -> dict:
     publish_log(state["job_id"], "Opening Pull Request", "running")
-    print(f"[Node 7] Opening Pull Request...")
+    logger.info("[Node 7] Opening Pull Request...")
     owner, repo, issue_number = parse_github_url(state["issue_url"])
 
-    headers = {
-        "Authorization": f"Bearer {state['github_token']}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28"
-    }
+    headers = make_github_api_headers(state["github_token"])
 
-    # Step 1 — Get the SHA of the default branch
-    print(f"[Node 7] Getting default branch SHA...")
+    # Step 1 — Get default branch info
+    logger.info("[Node 7] Getting default branch SHA...")
     repo_response = requests.get(
         f"https://api.github.com/repos/{owner}/{repo}",
         headers=headers,
-        timeout=30
+        timeout=30,
     )
-
     if repo_response.status_code != 200:
         return {"error": f"Failed to get repo info: {repo_response.status_code}"}
 
-    default_branch = repo_response.json()["default_branch"]
+    repo_data = repo_response.json()
+    default_branch = repo_data["default_branch"]
 
     branch_response = requests.get(
         f"https://api.github.com/repos/{owner}/{repo}/git/ref/heads/{default_branch}",
         headers=headers,
-        timeout=30
+        timeout=30,
     )
-
     if branch_response.status_code != 200:
         return {"error": f"Failed to get branch SHA: {branch_response.status_code}"}
 
     base_sha = branch_response.json()["object"]["sha"]
-    print(f"[Node 7] Base SHA: {base_sha[:7]}... on branch: {default_branch}")
+    logger.info("[Node 7] Base SHA: %s on branch: %s", base_sha[:7], default_branch)
 
-    # Step 2 — Create a new branch with timestamp to avoid conflicts
-    branch_name = f"fix/issue-{issue_number}-{int(time.time())}"
-    print(f"[Node 7] Creating branch: {branch_name}")
+    # Step 2 — Create branch with UUID to avoid collisions
+    branch_name = f"fix/issue-{issue_number}-{uuid.uuid4().hex[:8]}"
+    logger.info("[Node 7] Creating branch: %s", branch_name)
 
-    create_branch_response = requests.post(
+    create_response = requests.post(
         f"https://api.github.com/repos/{owner}/{repo}/git/refs",
         headers=headers,
-        json={
-            "ref": f"refs/heads/{branch_name}",
-            "sha": base_sha
-        },
-        timeout=30
+        json={"ref": f"refs/heads/{branch_name}", "sha": base_sha},
+        timeout=30,
     )
+    if create_response.status_code not in (200, 201):
+        logger.error("[Node 7] Branch creation failed: %s", create_response.text[:200])
+        return {"error": f"Failed to create branch: {create_response.status_code}. {create_response.json().get('message', '')}"}
 
-    if create_branch_response.status_code not in [200, 201]:
-        print(f"[Node 7] Branch creation failed: {create_branch_response.status_code}")
-        print(f"[Node 7] Response: {create_branch_response.text[:200]}")
-        return {"error": f"Failed to create branch: {create_branch_response.status_code}"}
-
-    print(f"[Node 7] Branch created")
-
-    # Step 3 — Get the SHA of the file we are replacing
-    print(f"[Node 7] Getting file SHA for: {state['fixed_file_path']}")
+    # Step 3 — Get SHA of the file to replace
+    logger.info("[Node 7] Getting file SHA for: %s", state["fixed_file_path"])
     file_response = requests.get(
         f"https://api.github.com/repos/{owner}/{repo}/contents/{state['fixed_file_path']}",
         headers=headers,
         params={"ref": branch_name},
-        timeout=30
+        timeout=30,
     )
-
     if file_response.status_code != 200:
         return {"error": f"Failed to get file SHA: {file_response.status_code}"}
 
     file_sha = file_response.json()["sha"]
 
-    # Step 4 — Push the fixed file to the branch
-    print(f"[Node 7] Pushing fixed file...")
-    fixed_content_b64 = base64.b64encode(state["fix_code"].encode("utf-8")).decode("utf-8")
-
+    # Step 4 — Push the fix
+    logger.info("[Node 7] Pushing fix file...")
+    fix_b64 = base64.b64encode(state["fix_code"].encode("utf-8")).decode("utf-8")
     push_response = requests.put(
         f"https://api.github.com/repos/{owner}/{repo}/contents/{state['fixed_file_path']}",
         headers=headers,
         json={
             "message": f"fix: auto-fix for issue #{issue_number}",
-            "content": fixed_content_b64,
+            "content": fix_b64,
             "sha": file_sha,
-            "branch": branch_name
+            "branch": branch_name,
         },
-        timeout=30
+        timeout=30,
     )
-
-    if push_response.status_code not in [200, 201]:
+    if push_response.status_code not in (200, 201):
         return {"error": f"Failed to push fix: {push_response.status_code} {push_response.text}"}
 
-    print(f"[Node 7] Fixed file pushed")
-
-    # Step 5 — Push the test file to the branch
-    print(f"[Node 7] Pushing test file...")
-    test_content_b64 = base64.b64encode(state["test_code"].encode("utf-8")).decode("utf-8")
-
-    push_test_response = requests.put(
+    # Step 5 — Push the test file
+    logger.info("[Node 7] Pushing test file...")
+    test_b64 = base64.b64encode(state["test_code"].encode("utf-8")).decode("utf-8")
+    push_test = requests.put(
         f"https://api.github.com/repos/{owner}/{repo}/contents/test_bug_reproduction.py",
         headers=headers,
         json={
             "message": f"test: add regression test for issue #{issue_number}",
-            "content": test_content_b64,
-            "branch": branch_name
+            "content": test_b64,
+            "branch": branch_name,
         },
-        timeout=30
+        timeout=30,
     )
+    if push_test.status_code not in (200, 201):
+        logger.warning("[Node 7] Could not push test file: %s", push_test.status_code)
 
-    if push_test_response.status_code not in [200, 201]:
-        print(f"[Node 7] Warning: could not push test file: {push_test_response.status_code}")
-
-    # Step 6 — Open the Pull Request
-    print(f"[Node 7] Creating Pull Request...")
+    # Step 6 — Open the PR
+    logger.info("[Node 7] Creating Pull Request...")
     pr_body = f"""## Automated Bug Fix
 
 This PR was automatically generated by Bug Reproducer.
 
 ### Issue
-Fixes #{issue_number} — {state['issue_title']}
+Fixes #{issue_number} — {state['issue_title'][:80]}
 
 ### Root Cause
 {state.get('fix_code', '')[:200]}
@@ -143,19 +132,17 @@ A regression test `test_bug_reproduction.py` has been added to prevent this bug 
             "title": f"fix: auto-fix for issue #{issue_number} — {state['issue_title'][:60]}",
             "body": pr_body,
             "head": branch_name,
-            "base": default_branch
+            "base": default_branch,
         },
-        timeout=30
+        timeout=30,
     )
-
-    if pr_response.status_code not in [200, 201]:
+    if pr_response.status_code not in (200, 201):
         return {"error": f"Failed to create PR: {pr_response.status_code} {pr_response.text}"}
 
     pr_url = pr_response.json()["html_url"]
-    print(f"[Node 7] ✓ Pull Request opened: {pr_url}")
+    logger.info("[Node 7] Pull Request opened: %s", pr_url)
 
-    # Step 7 — Post comment on original issue
-    print(f"[Node 7] Posting comment on issue...")
+    # Step 7 — Post comment on the original issue (non-blocking)
     try:
         comment_response = requests.post(
             f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments",
@@ -163,18 +150,16 @@ A regression test `test_bug_reproduction.py` has been added to prevent this bug 
             json={
                 "body": f"🤖 An automated fix has been generated and submitted as {pr_url}\n\nPlease review the PR before merging."
             },
-            timeout=10
+            timeout=10,
         )
-        if comment_response.status_code in [200, 201]:
-            print(f"[Node 7] ✓ Comment posted on issue #{issue_number}")
+        if comment_response.status_code in (200, 201):
+            logger.info("[Node 7] Comment posted on issue #%d", issue_number)
         else:
-            print(f"[Node 7] ⚠ Could not post comment: {comment_response.status_code}")
+            logger.warning("[Node 7] Could not post comment: %s", comment_response.status_code)
     except Exception as e:
-        print(f"[Node 7] ⚠ Comment failed but PR is already open: {e}")
+        logger.warning("[Node 7] Comment failed but PR is open: %s", e)
 
-    print(f"[Node 7] ✓ Job complete — PR: {pr_url}")
+    logger.info("[Node 7] Job complete — PR: %s", pr_url)
     publish_log(state["job_id"], "Opening Pull Request", "done", pr_url)
 
-    return {
-        "pr_url": pr_url
-    }
+    return {"pr_url": pr_url}

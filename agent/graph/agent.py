@@ -12,6 +12,12 @@ MAX_RETRIES = 3
 MAX_FIX_RETRIES = 3
 
 def decide_after_test(state: AgentState) -> str:
+    """Decide next step after running a test.
+
+    - If the test has setup/syntax errors: retry writing it (up to MAX_RETRIES).
+    - If the test passed (bug NOT reproduced): end — the issue was not reproduced.
+    - If the test failed (bug confirmed): proceed to write a fix.
+    """
     if state.get("test_error"):
         if state.get("retry_count", 0) >= MAX_RETRIES:
             print(f"[Agent] Max test retries reached — stopping")
@@ -20,13 +26,14 @@ def decide_after_test(state: AgentState) -> str:
         return "rewrite_test"
 
     if state.get("test_passed"):
-        if state.get("retry_count", 0) >= MAX_RETRIES:
-            return "end"
-        return "rewrite_test"
+        print(f"[Agent] Test passed — bug was not reproduced. Ending.")
+        return "end"
 
+    print(f"[Agent] Bug confirmed — proceeding to write fix")
     return "write_fix"
 
 def decide_after_verify(state: AgentState) -> str:
+    """Decide next step after verifying a fix."""
     if state.get("fix_verified"):
         return "open_pr"
 

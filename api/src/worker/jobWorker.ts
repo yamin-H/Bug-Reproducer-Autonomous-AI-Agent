@@ -1,18 +1,6 @@
 import { Worker } from "bullmq";
 import { prisma } from "../lib/prisma";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-const url = new URL(redisUrl);
-
-const connection = {
-    host: url.hostname,
-    port: parseInt(url.port),
-    password: url.password || undefined,
-    tls: redisUrl.startsWith("rediss://") ? {} : undefined
-};
+import { bullConnection } from "../lib/redis";
 
 const PYTHON_AGENT_URL = process.env.PYTHON_AGENT_URL || "http://localhost:8000";
 
@@ -22,40 +10,37 @@ const worker = new Worker("bug-reproducer", async (job) => {
 
     await prisma.job.update({
         where: { id: jobId },
-        data: { status: "RUNNING" }
+        data: { status: "RUNNING" },
     });
 
     try {
         console.log(`[Worker] Calling Python agent for job: ${jobId}`);
         const response = await fetch(`${PYTHON_AGENT_URL}/run`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 job_id: jobId,
                 issue_url: issueUrl,
-                github_token: githubToken
-            })
+                github_token: githubToken,
+            }),
         });
 
         if (!response.ok) {
             throw new Error(`Python agent returned ${response.status}`);
         }
         console.log(`[Worker] Python agent accepted job: ${jobId}`);
-
     } catch (error) {
         console.error(`[Worker] Error calling Python agent:`, error);
         await prisma.job.update({
             where: { id: jobId },
             data: {
                 status: "FAILED",
-                errorMessage: "Failed to call Python agent"
-            }
+                errorMessage: "Failed to call Python agent",
+            },
         });
     }
 }, {
-    connection
+    connection: bullConnection,
 });
 
 worker.on("completed", (job) => {
